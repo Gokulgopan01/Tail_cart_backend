@@ -1,0 +1,235 @@
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from .models import UserProfile, PetModule, Product, Documents, CartItem
+from .serializers import LoginSerializer, RegisterSerializer, UserProfileSerializer, PetSerializer, ProductSerializer, DocumentSerializer, CartItemSerializer
+
+
+#Login View
+class LoginView(APIView):
+    '''Login user with email and password'''
+
+    def post(self, request):
+        serializer = LoginSerializer(data=request.data)
+        if serializer.is_valid(): user = serializer.validated_data['user'];return Response({"message": "Login successful","user_id": user.user_id,"username": user.username})
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+#Register View    
+class RegisterView(APIView):
+    def post(self, request):
+        serializer = RegisterSerializer(data=request.data)
+        if serializer.is_valid():user = serializer.save();return Response({"message": "User registered successfully", "user_id": user.user_id, "username": user.username}, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+#Users Profile View
+class UserProfileView(APIView):
+    '''Create, Retrieve, Update User Profile'''
+
+    def post(self, request):
+        '''Create user profile'''
+
+        serializer = UserProfileSerializer(data=request.data)
+        if serializer.is_valid():profile = serializer.save() ;return Response({"message": "profile created", "profile_id": profile.profile_id}, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def get(self, request):
+        '''Retrieve user profile'''
+
+        user_id = request.query_params.get('user_id')
+        if not user_id: return Response('error: user_id is required', status=status.HTTP_400_BAD_REQUEST)
+        try: profile = UserProfile.objects.get(user__user_id=user_id)
+        except UserProfile.DoesNotExist:return Response({"error": "Profile not found"}, status=status.HTTP_404_NOT_FOUND)
+        serializer = UserProfileSerializer(profile)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    def put(self, request):
+        '''update entire user profile'''
+
+        user_id = request.data.get('user_id')
+        if not user_id: return Response('error: user_id is required', status=status.HTTP_400_BAD_REQUEST)
+        try: profile = UserProfile.objects.get(user__user_id=user_id)
+        except UserProfile.DoesNotExist: return Response({"error": "Profile not found"}, status=status.HTTP_404_NOT_FOUND)
+        serializer = UserProfileSerializer(profile, data=request.data, partial=True)
+        if serializer.is_valid(): serializer.save() ;return Response({"message": "Profile updated successfully"}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def patch(self, request):
+        """Partial update of user profile"""
+
+        user_id = request.data.get("user_id")
+        if not user_id: return Response({"error": "user_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
+        try: profile = UserProfile.objects.get(user__user_id=user_id)
+        except UserProfile.DoesNotExist: return Response({"error": "Profile not found"}, status=status.HTTP_404_NOT_FOUND)
+        serializer = UserProfileSerializer(profile, data=request.data, partial=True) 
+        if serializer.is_valid(): serializer.save() ;return Response({"message": "profile partially updated", "data": serializer.data}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class PetView(APIView):
+    '''Create and List Pets'''
+
+    def post(self, request):
+        '''Create a new pet for a user'''
+
+        serializer = PetSerializer(data=request.data)
+        if serializer.is_valid(): pet = serializer.save() ;return Response({"message": "Pet created successfully", "pet_id": pet.pet_id}, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def get(self, request):
+        '''Show pets of a user'''
+
+        user_id = request.query_params.get('user_id')
+        if not user_id: return Response('error: user_id is required', status=status.HTTP_400_BAD_REQUEST)
+        pets = PetModule.objects.filter(owner__user_id=user_id)
+        if not pets.exists(): return Response({"error": "you have not pets now"}, status=status.HTTP_404_NOT_FOUND)
+        serializer = PetSerializer(pets, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    def put(self, request):
+        '''Update pet information'''
+
+        user_id = request.data.get('user_id')
+        pet_id = request.data.get('pet_id')
+        if not user_id or not pet_id: return Response('error: user_id and pet_id are required', status=status.HTTP_400_BAD_REQUEST)
+        try: pet = PetModule.objects.get(pet_id=pet_id, owner__user_id=user_id)
+        except PetModule.DoesNotExist: return Response({"error": "Pet not found"}, status=status.HTTP_404_NOT_FOUND)
+        serializer = PetSerializer(pet, data=request.data, partial=True)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer.save()
+        return Response({"message": "Pet updated successfully"}, status=status.HTTP_200_OK)
+
+
+class ProductView(APIView):
+    """List and Create products"""
+    from rest_framework.permissions import AllowAny
+    permission_classes = [AllowAny] 
+    def get(self, request):
+        """List all products"""
+        products = Product.objects.all()
+        serializer = ProductSerializer(products, many=True , context={'request': request})
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    def post(self, request):
+        """Create a new product"""
+        user_id = request.data.get("user")
+        pet_id = request.data.get("pet")
+        if not PetModule.objects.filter(pet_id=pet_id).exists():
+            return Response( {"error": "Pet not found."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not PetModule.objects.filter(pet_id=pet_id, owner=user_id).exists():
+            return Response( {"error": "This pet does not belong to the user."}, status=status.HTTP_400_BAD_REQUEST )
+        serializer = ProductSerializer(data=request.data)
+
+        if serializer.is_valid():
+            product = serializer.save()
+            return Response( {"message": "Product created successfully", "product_id": product.id},status=status.HTTP_201_CREATED,  )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def put(self, request):
+        '''update entire user profile'''
+
+        user_id = request.data.get('user_id')
+        if not user_id: return Response('error: user_id is required', status=status.HTTP_400_BAD_REQUEST)
+        try: profile = UserProfile.objects.get(user__user_id=user_id)
+        except UserProfile.DoesNotExist: return Response({"error": "Profile not found"}, status=status.HTTP_404_NOT_FOUND)
+        serializer = UserProfileSerializer(profile, data=request.data, partial=True)
+        if serializer.is_valid(): serializer.save() ;return Response({"message": "Profile updated successfully"}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class DocumentView(APIView):
+    """Create and List Documents"""
+
+    def post(self, request):
+        """Create a new document for a user and pet"""
+        user_id = request.data.get("user")
+        pet_id = request.data.get("pet")
+        if not PetModule.objects.filter(pet_id=pet_id).exists():
+            return Response( {"error": "Pet not found."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not PetModule.objects.filter(pet_id=pet_id, owner=user_id).exists():
+            return Response( {"error": "This pet does not belong to the user."}, status=status.HTTP_400_BAD_REQUEST )
+        
+        serializer = DocumentSerializer(data=request.data)
+        if serializer.is_valid():
+            document = serializer.save()
+            return Response({"message": "Product created successfully", "document_id":document.document_id}, status=status.HTTP_201_CREATED,)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def get(self, request):
+        """List Documents of user"""
+
+        user_id = request.query_params.get('user_id')
+        if not user_id: return Response('error: user_id is required', status=status.HTTP_400_BAD_REQUEST)
+        documents= Documents.objects.filter(user_id=user_id)
+        if not documents.exists(): return Response([], status=status.HTTP_200_OK)
+        serializer = DocumentSerializer(documents, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    
+    
+
+
+class CartView(APIView):
+
+    def get(self, request):
+        user_id = request.query_params.get('user_id')
+        if not user_id:
+            return Response({'error': 'user_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        cart_items = CartItem.objects.filter(owner=user_id)
+        serializer = CartItemSerializer(cart_items, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        user_id = request.data.get("owner")
+        pet_id = request.data.get("pet")
+        if not PetModule.objects.filter(pet_id=pet_id).exists():
+            return Response( {"error": "Pet not found."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not PetModule.objects.filter(pet_id=pet_id, owner=user_id).exists():
+            return Response( {"error": "This pet does not belong to the user."}, status=status.HTTP_400_BAD_REQUEST )
+        serializer = CartItemSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({'message': 'Item added to cart successfully'}, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def put(self, request):
+        '''update entire user profile'''
+
+        user_id = request.data.get('user_id')
+        if not user_id: return Response('error: user_id is required', status=status.HTTP_400_BAD_REQUEST)
+
+        cart_id = request.data.get('cart_id')
+        if not cart_id:return Response({'error': 'cart_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:  cart_item = CartItem.objects.get(cart_id=cart_id)
+        except CartItem.DoesNotExist: return Response({'error': 'Cart item not found'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = CartItemSerializer(cart_item, data=request.data, partial=True)
+        if serializer.is_valid(): serializer.save() ;return Response({'message': 'Cart item updated successfully'}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request):
+        """Delete a cart item"""
+        cart_id = request.query_params.get('cart_id')
+        if not cart_id:
+            return Response({'error': 'cart_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            cart_item = CartItem.objects.get(cart_id=cart_id)
+        except CartItem.DoesNotExist:
+            return Response({'error': 'Cart item not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        cart_item.delete()
+        return Response({'message': 'Cart item deleted successfully'}, status=status.HTTP_200_OK)
+    
+
+    
+
+    
+
+
+    
+

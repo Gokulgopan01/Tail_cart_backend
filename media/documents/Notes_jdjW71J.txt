@@ -1,0 +1,9 @@
+.To make app.component file ony visible to any of components.
+
+using rxjs - it will give all events in pipe and filter that and check if router is our url .
+example:
+this.router.events
+  .pipe(filter(event => event instanceof NavigationEnd))
+  .subscribe((event: any) => {
+    this.showNavbar = event.url !== '/product';
+  });
