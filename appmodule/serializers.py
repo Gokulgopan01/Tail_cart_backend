@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import authenticate
-from .models import LoginModule, UserProfile, PetModule, Product, Documents, CartItem
+from .models import LoginModule, UserProfile, PetModule, Product, Documents, CartItem, PetAlerts
 
 
 class LoginSerializer(serializers.Serializer):
@@ -80,3 +80,13 @@ class UserProfileSerializer(serializers.ModelSerializer):
         except LoginModule.DoesNotExist:raise serializers.ValidationError("User not found")
         profile = UserProfile.objects.create(user=user, **validated_data)
         return profile
+    
+class PetAlertSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = PetAlerts 
+        fields = ['alert_id','user', 'pet', 'alert_type', 'title', 'due_date', 'frequency', 'is_active']
+
+        def create(self, validated_data):
+            alert = PetAlerts.objects.create(**validated_data)
+            return alert

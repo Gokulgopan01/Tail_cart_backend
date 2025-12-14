@@ -82,3 +82,16 @@ class CartItem(models.Model):
 
     def __str__(self):
         return f"{self.owner.username} - {self.product.name} ({self.status})"
+    
+
+class PetAlerts(models.Model):
+    alert_id = models.AutoField(primary_key=True)
+    user = models.ForeignKey(LoginModule, on_delete = models.CASCADE)
+    pet = models.ForeignKey(PetModule, on_delete = models.CASCADE)
+    alert_type = models.CharField(choices = [('Vaccination', 'Vaccination'), ('Medication', 'Medication'), ('Appointment', 'Appointment')], max_length=50)
+    title = models.CharField(max_length=200)
+    due_date = models.DateField()
+    frequency = models.CharField(choices = [('One-time', 'One-time'), ('Daily', 'Daily'), ('Weekly', 'Weekly'), ('Monthly', 'Monthly')], max_length=50)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
