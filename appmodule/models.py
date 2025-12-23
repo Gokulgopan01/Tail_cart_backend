@@ -1,15 +1,14 @@
 from django.db import models
+from django.contrib.auth.models import User
 from rest_framework import generics
 
 
-class LoginModule(models.Model): 
-    user_id = models.AutoField(primary_key=True)
-    username = models.CharField(max_length=150)
-    email_address = models.EmailField(unique=True)
-    password = models.CharField(max_length=128)
+class LoginModule(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    role = models.CharField(max_length=10, default='USER')
 
     def __str__(self):
-        return self.username
+        return self.user.username
 
 
 class PetModule(models.Model):  
@@ -95,3 +94,5 @@ class PetAlerts(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    def __str__(self):
+        return f"{self.pet.pet_name} - {self.alert_type} Alert"

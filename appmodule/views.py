@@ -1,9 +1,13 @@
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 
-from .models import UserProfile, PetModule, Product, Documents, CartItem, PetAlerts
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework.permissions import IsAdminUser
+from .permissions import IsAdminRole
+
+from .models import UserProfile, PetModule, Product, Documents, CartItem, PetAlerts, LoginModule
 from .serializers import LoginSerializer, RegisterSerializer, UserProfileSerializer, PetSerializer, ProductSerializer, DocumentSerializer, CartItemSerializer, PetAlertSerializer
 
 
@@ -11,23 +15,71 @@ from .serializers import LoginSerializer, RegisterSerializer, UserProfileSeriali
 class LoginView(APIView):
     '''Login user with email and password'''
 
+    permission_classes = [AllowAny]
+
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
-        if serializer.is_valid(): user = serializer.validated_data['user'];return Response({"message": "Login successful","user_id": user.user_id,"username": user.username})
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        if serializer.is_valid():
+            user = serializer.validated_data.get('user')
+            if user is None:
+                return Response( {"message": "No account found, login again"},  status=status.HTTP_404_NOT_FOUND )
+            
+            refresh = RefreshToken.for_user(user.user)  # user.user is the actual auth.User
+            return Response({
+                "message": "Login successful",
+                "user_id": user.user_id,
+                "username": user.user.username,  # ✅ access via related User
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
+                "role": user.role,
+            }, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)    
 
+    def delete(self, request):
+        return Response({"message": "Logout successful"}, status=status.HTTP_200_OK)
+
+#Delet User
+class DeleteUserByIdView(APIView):
+
+    def delete(self, request, user_id):
+        try:
+            user = LoginModule.objects.get(user_id=user_id)
+            user.delete()
+            return Response(
+                {"message": "User and all related data deleted successfully"},
+                status=status.HTTP_200_OK
+            )
+        except LoginModule.DoesNotExist:
+            return Response(
+                {"error": "User not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
 #Register View    
 class RegisterView(APIView):
+    permission_classes = [AllowAny]
+
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
-        if serializer.is_valid():user = serializer.save();return Response({"message": "User registered successfully", "user_id": user.user_id, "username": user.username}, status=status.HTTP_201_CREATED)
+        if serializer.is_valid():
+            user_module = serializer.save()
+
+            refresh = RefreshToken.for_user(user_module.user)
+            return Response({
+                "message": "User registered successfully",
+                "user_id": user_module.user_id,
+                "username": user_module.user.username,  
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
+            }, status=status.HTTP_201_CREATED)
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 #Users Profile View
 class UserProfileView(APIView):
     '''Create, Retrieve, Update User Profile'''
+    permission_classes = [IsAuthenticated]
 
     #create profile
     def post(self, request):
@@ -76,6 +128,7 @@ class UserProfileView(APIView):
 #pets View
 class PetView(APIView):
     '''Create and List Pets'''
+    permission_classes = [IsAuthenticated]
 
     #create pets
     def post(self, request):
@@ -128,7 +181,10 @@ class PetView(APIView):
 class ProductView(APIView):
     """List and Create products"""
 
-    permission_classes = [AllowAny] 
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [AllowAny()]
+        return [IsAdminRole()]
 
     #get all products
     def get(self, request):
@@ -140,13 +196,7 @@ class ProductView(APIView):
     #create products admin only
     def post(self, request):
         """Create a new product"""
-        user_id = request.data.get("user")
-        pet_id = request.data.get("pet")
-        if not PetModule.objects.filter(pet_id=pet_id).exists():
-            return Response( {"error": "Pet not found."}, status=status.HTTP_400_BAD_REQUEST)
-        
-        if not PetModule.objects.filter(pet_id=pet_id, owner=user_id).exists():
-            return Response( {"error": "This pet does not belong to the user."}, status=status.HTTP_400_BAD_REQUEST )
+    
         serializer = ProductSerializer(data=request.data)
 
         if serializer.is_valid():
@@ -155,23 +205,23 @@ class ProductView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
     #edit product details
-    def put(self, request):
+    def put(self, request, product_id=None):
         '''update entire user profile'''
 
-        user_id = request.data.get('user_id')
-        if not user_id: return Response('error: user_id is required', status=status.HTTP_400_BAD_REQUEST)
-        try: profile = UserProfile.objects.get(user__user_id=user_id)
-        except UserProfile.DoesNotExist: return Response({"error": "Profile not found"}, status=status.HTTP_404_NOT_FOUND)
-        serializer = UserProfileSerializer(profile, data=request.data, partial=True)
-        if serializer.is_valid(): serializer.save() ;return Response({"message": "Profile updated successfully"}, status=status.HTTP_200_OK)
+        if product_id is None: return Response({'error': 'product_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try: product = Product.objects.get(id=product_id)
+        except Product.DoesNotExist: return Response({'error': 'Product not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = ProductSerializer(product, data=request.data, partial=True)
+        if serializer.is_valid(): serializer.save() ;return Response({"message": "Product updated successfully"}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
     #dekete product
-    def delete(self, request):
+    def delete(self, request, product_id=None):
         """Delete a product"""
 
-        product_id = request.query_params.get('product_id')
-        if not product_id:
+        if product_id is None:
             return Response({'error': 'product_id is required'}, status=status.HTTP_400_BAD_REQUEST)
         try:
             product = Product.objects.get(id=product_id)
@@ -222,12 +272,14 @@ class DocumentView(APIView):
             return Response({'error': 'document_id is required'}, status=status.HTTP_400_BAD_REQUEST)
         try:
             document = Documents.objects.get(document_id=document_id)
+            document.delete()
+            return Response( {'message': 'Document deleted successfully'}, status=status.HTTP_200_OK)
         except Documents.DoesNotExist:
-            return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
+            return Response( {'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND )
     
-
 #cart view
 class CartView(APIView):
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         user_id = request.query_params.get('user_id')
@@ -339,8 +391,3 @@ class PetAlertView(APIView):
         alert.delete()
         return Response({'message': 'Pet alert deleted successfully'}, status=status.HTTP_200_OK)
     
-
-
-
-    
-

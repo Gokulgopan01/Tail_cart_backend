@@ -1,33 +1,50 @@
 from rest_framework import serializers
 from django.contrib.auth import authenticate
+from django.contrib.auth.models import User
 from .models import LoginModule, UserProfile, PetModule, Product, Documents, CartItem, PetAlerts
 
 
 class LoginSerializer(serializers.Serializer):
-    email_address = serializers.CharField()
+    email_address = serializers.EmailField()
     password = serializers.CharField(write_only=True)
 
     def validate(self, data):
         email_address = data.get("email_address")
         password = data.get("password")
 
-        try:user = LoginModule.objects.get(email_address=email_address)
-        except LoginModule.DoesNotExist:raise serializers.ValidationError("User not found")
+        try:
+            # Look up the LoginModule via the related User's email
+            user_module = LoginModule.objects.get(user__email=email_address)
+        except LoginModule.DoesNotExist:
+            raise serializers.ValidationError("No account found, login again")
 
-        if user.password != password:raise serializers.ValidationError("Incorrect password")
+        if not user_module.user.check_password(password):
+            raise serializers.ValidationError("Incorrect password")
 
-        data['user'] = user
+        data['user'] = user_module
         return data
     
 
-class RegisterSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = LoginModule
-        fields = ['username', 'email_address', 'password']
+class RegisterSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    email_address = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+    role = serializers.CharField(default='USER') 
 
     def create(self, validated_data):
-        user = LoginModule.objects.create(**validated_data)
-        return user
+        
+        user = User.objects.create_user(
+            username=validated_data['username'],
+            email=validated_data['email_address'],
+            password=validated_data['password']
+        )
+
+        # 2. Create LoginModule linked to User
+        login_module = LoginModule.objects.create(
+            user=user,
+            role=validated_data.get('role', 'USER')
+        )
+        return login_module
 
 
 class PetSerializer(serializers.ModelSerializer):
