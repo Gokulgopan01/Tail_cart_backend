@@ -4,11 +4,19 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
 
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAdminUser
 from .permissions import IsAdminRole
 
-from .models import UserProfile, PetModule, Product, Documents, CartItem, PetAlerts, LoginModule
-from .serializers import LoginSerializer, RegisterSerializer, UserProfileSerializer, PetSerializer, ProductSerializer, DocumentSerializer, CartItemSerializer, PetAlertSerializer
+from .models import UserProfile, PetModule, Product, Documents, CartItem, PetRemainders, LoginModule, PetAlert, Order, OrderItem
+from .serializers import (LoginSerializer, RegisterSerializer,ForgotPasswordSerializer, ResetPasswordSerializer, UserProfileSerializer, OrderSerializer,
+PetSerializer, ProductSerializer, DocumentSerializer, CartItemSerializer, PetRemainderSerializer, PublicPetSerializer,PetDoctorSerializer,PetQRSerializer)
+
+from django.core.mail import send_mail
+from django.conf import settings
+from uuid import UUID 
+from google import genai
+client = genai.Client(api_key="AIzaSyAhNblR5szagAzKuETt-5LitFTsMe3-VSU")
 
 
 #Login View
@@ -24,11 +32,11 @@ class LoginView(APIView):
             if user is None:
                 return Response( {"message": "No account found, login again"},  status=status.HTTP_404_NOT_FOUND )
             
-            refresh = RefreshToken.for_user(user.user)  # user.user is the actual auth.User
+            refresh = RefreshToken.for_user(user.user) 
             return Response({
                 "message": "Login successful",
                 "user_id": user.user_id,
-                "username": user.user.username,  # ✅ access via related User
+                "username": user.user.username, 
                 "access": str(refresh.access_token),
                 "refresh": str(refresh),
                 "role": user.role,
@@ -58,6 +66,7 @@ class DeleteUserByIdView(APIView):
 #Register View    
 class RegisterView(APIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
 
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
@@ -73,6 +82,37 @@ class RegisterView(APIView):
                 "refresh": str(refresh),
             }, status=status.HTTP_201_CREATED)
 
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class ForgotPasswordView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        serializer = ForgotPasswordSerializer(data=request.data)
+        if serializer.is_valid():
+            otp_obj = serializer.create_otp()
+
+            # Send OTP via email
+            send_mail(
+                subject="TailCart Services - Password Reset OTP",
+                message=f"Your one time OTP for login to the account is : {otp_obj.otp}. Please dont send this OTP to anyone, it is valid for 10 minutes only.",
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[serializer.validated_data['email_address']],
+            )
+
+            return Response({"message": "OTP sent to email"}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ResetPasswordView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = ResetPasswordSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"message": "Password reset successfully"}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -123,6 +163,99 @@ class UserProfileView(APIView):
         serializer = UserProfileSerializer(profile, data=request.data, partial=True) 
         if serializer.is_valid(): serializer.save() ;return Response({"message": "profile partially updated", "data": serializer.data}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+#alerts reolve for lost pet
+class ResolveAlertView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request):
+        alert_id = request.data.get("alert_id")
+        user_id = request.data.get("user_id")
+
+        if not alert_id or not user_id: return Response({"error": "alert_id and user_id are required"}, status=status.HTTP_400_BAD_REQUEST )
+
+        try: alert = PetAlert.objects.get( id=alert_id, pet__owner__user_id=user_id )
+        except PetAlert.DoesNotExist: return Response({"error": "Alert not found"}, status=status.HTTP_404_NOT_FOUND )
+
+        alert.is_resolved = True
+        alert.save()
+        return Response( {"message": "Alert resolved successfully"}, status=status.HTTP_200_OK )
+    
+class getqrPetview(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, pet_id):
+        try:
+            pet = PetModule.objects.get(pet_id=pet_id)
+            serializer = PetQRSerializer(pet)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except PetModule.DoesNotExist:
+            return Response({"error": "Pet not found"}, status=404)
+        
+class getqrPublicPetView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self,request, qr_uuid):
+        try:
+            pet = PetModule.objects.get(pet_qr_uuid=qr_uuid)
+            serializer = PetQRSerializer(pet)
+            if pet.is_lost:
+                return Response(serializer.data, status=status.HTTP_200_OK)
+            else:
+                return Response({"error": "This pet is not reported as lost"}, status=status.HTTP_400_BAD_REQUEST)
+        except PetModule.DoesNotExist:
+            return Response({"error": "Pet not found"}, status=404)
+
+class PrivatePetView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pet_id):
+        try:
+            pet = PetModule.objects.select_related(
+                "owner", "owner__profile"
+            ).get(
+                pet_id=pet_id,
+                owner=request.user.loginmodule  # ✅ FIX
+            )
+        except PetModule.DoesNotExist:
+            return Response({"error": "Pet not found"}, status=404)
+
+        serializer = PublicPetSerializer(pet)
+        return Response(serializer.data, status=200)
+    
+
+class PublicPetView(APIView):
+    permission_classes = []
+
+    def get(self, request, qr_uuid):
+        try:
+            # Normalize UUID (add hyphens if missing)
+            qr_uuid = str(UUID(qr_uuid))
+            pet = PetModule.objects.select_related("owner", "owner__profile").get(pet_qr_uuid=qr_uuid)
+        except (PetModule.DoesNotExist, ValueError):
+            return Response({"error": "Pet not found"}, status=404)
+
+        serializer = PublicPetSerializer(pet)
+        return Response(serializer.data, status=200)
+
+#create alerts
+class CreatePetAlertView(APIView):
+    permission_classes = []  # PUBLIC (QR scan)
+
+    def post(self, request):
+        pet_id = request.data.get("pet_id")
+        location = request.data.get("location")
+
+        if not pet_id or not location:
+            return Response(  {"error": "pet_id and location are required"},status=status.HTTP_400_BAD_REQUEST )
+
+        try: pet = PetModule.objects.get(pet_id=pet_id)
+        except PetModule.DoesNotExist: return Response( {"error": "Pet not found"},status=status.HTTP_404_NOT_FOUND)
+
+        alert = PetAlert.objects.create( pet=pet, sender_name=request.data.get("sender_name"), phone=request.data.get("phone"), location=location, message=request.data.get("message") )
+
+        return Response( {"message": "Alert created successfully", "alert_id": alert.id}, status=status.HTTP_201_CREATED)
 
 
 #pets View
@@ -181,17 +314,34 @@ class PetView(APIView):
 class ProductView(APIView):
     """List and Create products"""
 
-    def get_permissions(self):
-        if self.request.method == 'GET':
-            return [AllowAny()]
-        return [IsAdminRole()]
+    authentication_classes = []  
+    permission_classes = [AllowAny]
+
+    # def get_permissions(self):
+    #     if self.request.method == 'GET':
+    #         return [AllowAny()]
+    #     return [IsAdminRole()]
 
     #get all products
-    def get(self, request):
-        """List all products"""
-        products = Product.objects.all()
-        serializer = ProductSerializer(products, many=True , context={'request': request})
-        return Response(serializer.data, status=status.HTTP_200_OK)
+    def get(self, request, id=None):
+
+        if id is not None:
+            try:
+                product = Product.objects.get(id=id)
+            except Product.DoesNotExist:
+                return Response({"error": "Product not found"}, status=404)
+
+            serializer = ProductSerializer(product, context={'request': request})
+            return Response(serializer.data)
+
+        products = Product.objects.all().order_by('-id')
+
+        paginator = PageNumberPagination()
+        paginator.page_size = 10
+        result_page = paginator.paginate_queryset(products, request)
+
+        serializer = ProductSerializer(result_page, many=True, context={'request': request})
+        return paginator.get_paginated_response(serializer.data)
     
     #create products admin only
     def post(self, request):
@@ -249,7 +399,7 @@ class DocumentView(APIView):
         serializer = DocumentSerializer(data=request.data)
         if serializer.is_valid():
             document = serializer.save()
-            return Response({"message": "Product created successfully", "document_id":document.document_id}, status=status.HTTP_201_CREATED,)
+            return Response({"message": "Document uploaded successfully", "document_id":document.document_id}, status=status.HTTP_201_CREATED,)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
     #get pet documents
@@ -293,11 +443,13 @@ class CartView(APIView):
     def post(self, request):
         user_id = request.data.get("owner")
         pet_id = request.data.get("pet")
+
         if not PetModule.objects.filter(pet_id=pet_id).exists():
             return Response( {"error": "Pet not found."}, status=status.HTTP_400_BAD_REQUEST)
         
         if not PetModule.objects.filter(pet_id=pet_id, owner=user_id).exists():
             return Response( {"error": "This pet does not belong to the user."}, status=status.HTTP_400_BAD_REQUEST )
+        
         serializer = CartItemSerializer(data=request.data)
         if serializer.is_valid():
             serializer.save()
@@ -336,8 +488,43 @@ class CartView(APIView):
         return Response({'message': 'Cart item deleted successfully'}, status=status.HTTP_200_OK)
 
 
+
+#order placement and management view 
+class CheckoutView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self,request):
+        user_id = request.data.get("user")
+        cart_items = CartItem.objects.filter(owner_id=user_id)
+        if not cart_items.exists():
+            return Response({"message": "Cart is empty"}, status=400)
+        
+        total = sum(item.product.selling_price * item.quantity for item in cart_items)
+
+        #create order
+        order = Order.objects.create( user_id=user_id,total_price=total)
+        for item in cart_items:
+            OrderItem.objects.create(  order=order,  product=item.product, quantity=item.quantity, price=item.product.selling_price )
+
+        cart_items.delete()
+        return Response({"message": "Order placed successfully"}, status=201)
+    
+
+
+class UserOrdersView(APIView):
+    def get(self, request):
+        user_id = request.query_params.get("user_id")
+
+        if not user_id:
+            return Response({"error": "user_id is required"}, status=400)
+
+        orders = Order.objects.filter(user=user_id)
+        serializer = OrderSerializer(orders, many=True)
+        return Response(serializer.data)
+    
+
 #Pets Alert View
-class PetAlertView(APIView):
+class PetRemainderView(APIView):
     '''pet alert management'''
 
     #create pet alert
@@ -348,10 +535,10 @@ class PetAlertView(APIView):
         if not PetModule.objects.filter(pet_id=pet_id, owner=user_id).exists():
             return Response( {"error": "This pet does not belong to the user."}, status=status.HTTP_400_BAD_REQUEST )
         
-        serializer = PetAlertSerializer(data = request.data)
+        serializer = PetRemainderSerializer(data = request.data)
         if serializer.is_valid():
             alert = serializer.save()
-            return Response({"message": "Pet alert created successfully", "alert_id": alert.alert_id}, status=status.HTTP_201_CREATED)
+            return Response({"message": "Pet remainder succesfully created", "alert_id": alert.alert_id}, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     #get pets alerts of user
@@ -360,8 +547,8 @@ class PetAlertView(APIView):
         if not user_id :
             return Response("error: user_id is mandatory", status = status.HTTP_400_BAD_REQUEST)
         
-        alerts = PetAlerts.objects.filter(user_id = user_id)
-        serializer = PetAlertSerializer(alerts, many = True)
+        alerts = PetRemainders.objects.filter(user_id = user_id)
+        serializer = PetRemainderSerializer(alerts, many = True)
         return Response(serializer.data, status = status.HTTP_200_OK)
     
     #update pet alerts
@@ -371,10 +558,10 @@ class PetAlertView(APIView):
         alert_id = request.data.get('alert_id')
         if not alert_id:return Response({'error': 'alert_id is required'}, status=status.HTTP_400_BAD_REQUEST)
 
-        try: alert = PetAlerts.objects.get(alert_id=alert_id)
-        except PetAlerts.DoesNotExist: return Response({'error': 'Alert not found'}, status=status.HTTP_404_NOT_FOUND)
-        serializer = PetAlertSerializer(alert, data=request.data, partial=True) 
-        if serializer.is_valid(): serializer.save() ;return Response({'message': 'Pet alert updated successfully'}, status=status.HTTP_200_OK)
+        try: alert = PetRemainders.objects.get(alert_id=alert_id)
+        except PetRemainders.DoesNotExist: return Response({'error': 'Alert not found'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = PetRemainderSerializer(alert, data=request.data, partial=True) 
+        if serializer.is_valid(): serializer.save() ;return Response({'message': 'Pet remainder updated successfully'}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
     #delete pet alert
@@ -384,10 +571,34 @@ class PetAlertView(APIView):
             return Response({'error': 'alert_id is required'}, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            alert = PetAlerts.objects.get(alert_id=alert_id)
-        except PetAlerts.DoesNotExist:
-            return Response({'error': 'Alert not found'}, status=status.HTTP_404_NOT_FOUND)
+            alert = PetRemainders.objects.get(alert_id=alert_id)
+        except PetRemainders.DoesNotExist:
+            return Response({'error': 'remainder not found'}, status=status.HTTP_404_NOT_FOUND)
         
         alert.delete()
-        return Response({'message': 'Pet alert deleted successfully'}, status=status.HTTP_200_OK)
+        return Response({'message': 'Pet remainder deleted successfully'}, status=status.HTTP_200_OK)
     
+class PetDoctorView(APIView):
+
+    def post(self, request):
+        serializer = PetDoctorSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user_prompt = serializer.validated_data["prompt"]
+
+        response = client.models.generate_content(
+            model="gemini-1.5-pro",
+            contents=f"""
+            You are a professional veterinary doctor.
+            Answer clearly and simply.
+            Do NOT give emergency or life-threatening advice.
+
+            Pet owner's question:
+            {user_prompt}
+            """
+        )
+
+        return Response(
+            {"reply": response.text},
+            status=status.HTTP_200_OK
+        )
