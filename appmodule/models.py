@@ -34,7 +34,7 @@ class PetAlert(models.Model):
     phone = models.CharField(max_length=15, blank=True, null=True)
     location = models.CharField(max_length=255)
     message = models.TextField(blank=True, null=True)
-    is_resolved = models.BooleanField(default=False)
+    is_resolved = models.TextField(default=False,null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
 
@@ -44,6 +44,8 @@ class PetModule(models.Model):
     species = models.CharField(max_length=50)
     breed = models.CharField(max_length=50)
     age = models.IntegerField()
+    gender = models.CharField(max_length=10)
+    about = models.TextField(blank=True, null=True)
 
     pet_photo = models.ImageField(upload_to='pet_photos/', blank=True, null=True)
     pet_qr_uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
@@ -113,6 +115,7 @@ class CartItem(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     quantity = models.PositiveIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True)
+    
 
     def __str__(self):
         return f"{self.owner.username} - {self.product.product_name}"
@@ -137,6 +140,14 @@ class Order(models.Model):
     total_price = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='Pending')
     created_at = models.DateTimeField(auto_now_add=True)
+    order_date = models.DateField(auto_now_add=True)
+
+    #tracking statuses
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    shipped_at = models.DateTimeField(null=True, blank=True)
+    out_for_delivery_at = models.DateTimeField(null=True, blank=True)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
 
 
 class OrderItem(models.Model):

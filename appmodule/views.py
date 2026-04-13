@@ -16,9 +16,34 @@ from django.core.mail import send_mail
 from django.conf import settings
 from uuid import UUID 
 from google import genai
+from django.utils import timezone
 client = genai.Client(api_key="AIzaSyAhNblR5szagAzKuETt-5LitFTsMe3-VSU")
 
 
+
+
+#Register View    
+class RegisterView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        serializer = RegisterSerializer(data=request.data)
+        if serializer.is_valid():
+            user_module = serializer.save()
+
+            refresh = RefreshToken.for_user(user_module.user)
+            return Response({
+                "message": "User registered successfully",
+                "user_id": user_module.user_id,
+                "username": user_module.user.username,  
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
+            }, status=status.HTTP_201_CREATED)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    
 #Login View
 class LoginView(APIView):
     '''Login user with email and password'''
@@ -63,26 +88,7 @@ class DeleteUserByIdView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-#Register View    
-class RegisterView(APIView):
-    permission_classes = [AllowAny]
-    authentication_classes = []
 
-    def post(self, request):
-        serializer = RegisterSerializer(data=request.data)
-        if serializer.is_valid():
-            user_module = serializer.save()
-
-            refresh = RefreshToken.for_user(user_module.user)
-            return Response({
-                "message": "User registered successfully",
-                "user_id": user_module.user_id,
-                "username": user_module.user.username,  
-                "access": str(refresh.access_token),
-                "refresh": str(refresh),
-            }, status=status.HTTP_201_CREATED)
-
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class ForgotPasswordView(APIView):
     permission_classes = [AllowAny]
@@ -502,7 +508,7 @@ class CheckoutView(APIView):
         total = sum(item.product.selling_price * item.quantity for item in cart_items)
 
         #create order
-        order = Order.objects.create( user_id=user_id,total_price=total)
+        order = Order.objects.create( user_id=user_id,total_price=total, confirmed_at=timezone.now() )
         for item in cart_items:
             OrderItem.objects.create(  order=order,  product=item.product, quantity=item.quantity, price=item.product.selling_price )
 

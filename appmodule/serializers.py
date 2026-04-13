@@ -5,6 +5,26 @@ import random
 from .models import LoginModule, UserProfile, PetModule, Product, Documents, CartItem, PetRemainders, PetAlert, PasswordResetOTP, Order, OrderItem
 
 
+class RegisterSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    email_address = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+    role = serializers.CharField(default='USER') 
+
+    #Only one email address can be registered with one account
+    def validate_email_address(self, value):
+        if User.objects.filter(email=value).exists():
+            raise serializers.ValidationError("Email address already taken")
+        return value
+
+    #create user and login module entry
+    def create(self, validated_data):
+        
+        user = User.objects.create_user( username=validated_data['username'], email=validated_data['email_address'], password=validated_data['password'] )
+        login_module = LoginModule.objects.create(user=user,role=validated_data.get('role', 'USER') )
+        return login_module
+    
+
 class LoginSerializer(serializers.Serializer):
     email_address = serializers.EmailField()
     password = serializers.CharField(write_only=True)
@@ -26,20 +46,7 @@ class LoginSerializer(serializers.Serializer):
         return data
     
 
-class RegisterSerializer(serializers.Serializer):
-    username = serializers.CharField()
-    email_address = serializers.EmailField()
-    password = serializers.CharField(write_only=True)
-    role = serializers.CharField(default='USER') 
 
-    def create(self, validated_data):
-        
-        user = User.objects.create_user( username=validated_data['username'], email=validated_data['email_address'], password=validated_data['password'] )
-
-        # 2. Create LoginModule linked to User
-        login_module = LoginModule.objects.create(user=user,role=validated_data.get('role', 'USER') )
-        return login_module
-    
 
 class ForgotPasswordSerializer(serializers.Serializer):
     email_address = serializers.EmailField()
@@ -101,7 +108,7 @@ class ResetPasswordSerializer(serializers.Serializer):
 class LostPetAlertSerializer(serializers.ModelSerializer):
     class Meta:
         model = PetAlert  # This is the correct model
-        fields = ['id', 'sender_name', 'phone', 'location', 'message', 'created_at']
+        fields = ['id', 'sender_name', 'phone', 'location', 'message', 'created_at','is_resolved']
 
 class PetQRSerializer(serializers.ModelSerializer):
     class Meta:
@@ -114,7 +121,7 @@ class PetSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PetModule
-        fields = ['pet_id', 'pet_name', 'species', 'breed','age', 'owner', 'is_lost', 'alerts','pet_photo'  ]
+        fields = ['pet_id', 'pet_name', 'species', 'breed','age', 'owner', 'is_lost', 'alerts','pet_photo', 'about','gender']
 
     def get_alerts(self, obj):
         alerts_qs = obj.alerts.filter(is_resolved=False)
@@ -127,11 +134,12 @@ class PublicPetSerializer(serializers.ModelSerializer):
     owner_phone = serializers.CharField(source='owner.profile.owner_phone', read_only=True)
     owner_city = serializers.CharField(source='owner.profile.owner_city', read_only=True)
     owner_state = serializers.CharField(source='owner.profile.owner_state', read_only=True)
+    owner_id = serializers.IntegerField(source='owner.user_id', read_only=True)
     pet_photo = serializers.ImageField(read_only=True)
 
     class Meta:
         model = PetModule
-        fields = [ "pet_name", "species", "breed", "age", "pet_photo", "is_lost","owner_name", "owner_address", "owner_phone", "owner_city",  "owner_state",]
+        fields = ["pet_id","owner_id", "pet_name", "species", "breed", "age", "pet_photo", "is_lost","owner_name", "owner_address", "owner_phone", "owner_city",  "owner_state"]
 
 
 class ProductSerializer(serializers.ModelSerializer):
@@ -195,16 +203,49 @@ class OrderItemSerializer(serializers.ModelSerializer):
         model = OrderItem
         fields = ['product', 'quantity', 'price']
 
+
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
+    timeline = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
-        fields = ['order_id', 'status', 'total_price', 'items']
+        fields = [
+            'order_id',
+            'status',
+            'total_price',
+            'items',
+            'timeline'
+        ]
 
-
-
-
+    def get_timeline(self, obj):
+        return [
+            {
+                "label": "Order Placed",
+                "date": obj.created_at,
+                "completed": True
+            },
+            {
+                "label": "Confirmed",
+                "date": obj.confirmed_at,
+                "completed": bool(obj.confirmed_at)
+            },
+            {
+                "label": "Shipped",
+                "date": obj.shipped_at,
+                "completed": bool(obj.shipped_at)
+            },
+            {
+                "label": "Out for Delivery",
+                "date": obj.out_for_delivery_at,
+                "completed": bool(obj.out_for_delivery_at)
+            },
+            {
+                "label": "Delivered",
+                "date": obj.delivered_at,
+                "completed": bool(obj.delivered_at)
+            }
+        ]
 
 
 class UserProfileSerializer(serializers.ModelSerializer):

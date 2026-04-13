@@ -8,9 +8,9 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 
 urlpatterns = [
-    # Auth 
-    path("user/register/", RegisterView.as_view(), name="simple-register"), 
+    # Auth Login and Registration 
     path("user/login/", LoginView.as_view(), name="simple-login"), 
+    path("user/register/", RegisterView.as_view(), name="simple-register"), 
     path("user/forgot-password/", ForgotPasswordView.as_view(), name="forgot-password"),  
     path("user/reset-password/", ResetPasswordView.as_view(), name="reset-password"), 
 
@@ -22,7 +22,7 @@ urlpatterns = [
     #public alerts and pet views
     path("alerts/resolve/", ResolveAlertView.as_view(), name="resolve-alert"),
     path("alerts/create/", CreatePetAlertView.as_view(), name="create-pet-alert"),
-    path("public/pet/<str:qr_uuid>/", PublicPetView.as_view(), name="public-pet-view"),
+    path("public/pet/qr/<str:qr_uuid>/", PublicPetView.as_view(), name="public-pet-view"),
 
     #other user features
     path("user/doctor/", PetDoctorView.as_view(), name="pet-doctor-view"),
