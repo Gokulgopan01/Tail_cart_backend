@@ -446,8 +446,21 @@ class DocumentView(APIView):
         if not PetModule.objects.filter(pet_id=pet_id).exists():
             return Response( {"error": "Pet not found."}, status=status.HTTP_400_BAD_REQUEST)
         
-        if not PetModule.objects.filter(pet_id=pet_id, owner=user_id).exists():
-            return Response( {"error": "This pet does not belong to the user."}, status=status.HTTP_400_BAD_REQUEST )
+        try:
+            owner = LoginModule.objects.get(user_id=user_id)
+        except LoginModule.DoesNotExist:
+            return Response({"error": "User not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            pet = PetModule.objects.get(pet_id=pet_id)
+        except PetModule.DoesNotExist:
+            return Response({"error": "Pet not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if pet.owner != owner:
+            return Response(
+                {"error": "This pet does not belong to the user."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         serializer = DocumentSerializer(data=request.data)
         if serializer.is_valid():
@@ -461,7 +474,7 @@ class DocumentView(APIView):
 
         user_id = request.query_params.get('user_id')
         if not user_id: return Response('error: user_id is required', status=status.HTTP_400_BAD_REQUEST)
-        documents= Documents.objects.filter(user_id=user_id)
+        documents = Documents.objects.filter(user__user_id=user_id)
         if not documents.exists(): return Response([], status=status.HTTP_200_OK)
         serializer = DocumentSerializer(documents, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -486,9 +499,13 @@ class CartView(APIView):
 
     def get(self, request):
         user_id = request.query_params.get('user_id')
-        if not user_id:
-            return Response({'error': 'user_id is required'}, status=status.HTTP_400_BAD_REQUEST)
-        cart_items = CartItem.objects.filter(owner=user_id)
+
+        try:
+            owner = LoginModule.objects.get(user_id=user_id)
+        except LoginModule.DoesNotExist:
+            return Response({"error": "User not found"}, status=400)
+        
+        cart_items = CartItem.objects.filter(owner=owner)
         serializer = CartItemSerializer(cart_items, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -497,11 +514,18 @@ class CartView(APIView):
         user_id = request.data.get("owner")
         pet_id = request.data.get("pet")
 
-        if not PetModule.objects.filter(pet_id=pet_id).exists():
-            return Response( {"error": "Pet not found."}, status=status.HTTP_400_BAD_REQUEST)
-        
-        if not PetModule.objects.filter(pet_id=pet_id, owner=user_id).exists():
-            return Response( {"error": "This pet does not belong to the user."}, status=status.HTTP_400_BAD_REQUEST )
+        try:
+            owner = LoginModule.objects.get(user_id=user_id)
+        except LoginModule.DoesNotExist:
+            return Response({"error": "User not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            pet = PetModule.objects.get(pet_id=pet_id)
+        except PetModule.DoesNotExist:
+            return Response({"error": "Pet not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if pet.owner != owner:
+            return Response({"error": "This pet does not belong to the user."},status=status.HTTP_400_BAD_REQUEST)
         
         serializer = CartItemSerializer(data=request.data)
         if serializer.is_valid():
@@ -514,12 +538,13 @@ class CartView(APIView):
         '''update entire user profile'''
 
         user_id = request.data.get('user_id')
-        if not user_id: return Response('error: user_id is required', status=status.HTTP_400_BAD_REQUEST)
+        owner = LoginModule.objects.get(user_id=user_id)
+        if not owner: return Response('error: user_id is required', status=status.HTTP_400_BAD_REQUEST)
 
         cart_id = request.data.get('cart_id')
         if not cart_id:return Response({'error': 'cart_id is required'}, status=status.HTTP_400_BAD_REQUEST)
         
-        try:  cart_item = CartItem.objects.get(cart_id=cart_id)
+        try:  cart_item = CartItem.objects.get(cart_id=cart_id,owner=owner)
         except CartItem.DoesNotExist: return Response({'error': 'Cart item not found'}, status=status.HTTP_404_NOT_FOUND)
         serializer = CartItemSerializer(cart_item, data=request.data, partial=True)
         if serializer.is_valid(): serializer.save() ;return Response({'message': 'Cart item updated successfully'}, status=status.HTTP_200_OK)
@@ -532,8 +557,12 @@ class CartView(APIView):
         if not cart_id:
             return Response({'error': 'cart_id is required'}, status=status.HTTP_400_BAD_REQUEST)
         
+        user_id = request.data.get('user_id')
+        owner = LoginModule.objects.get(user_id=user_id)
+        if not owner: return Response('error: user_id is required', status=status.HTTP_400_BAD_REQUEST)
+        
         try:
-            cart_item = CartItem.objects.get(cart_id=cart_id)
+            cart_item = CartItem.objects.get(cart_id=cart_id,owner=owner)
         except CartItem.DoesNotExist:
             return Response({'error': 'Cart item not found'}, status=status.HTTP_404_NOT_FOUND)
         
@@ -585,8 +614,21 @@ class PetRemainderView(APIView):
         user_id = request.data.get("user")
         pet_id = request.data.get("pet")
 
-        if not PetModule.objects.filter(pet_id=pet_id, owner=user_id).exists():
-            return Response( {"error": "This pet does not belong to the user."}, status=status.HTTP_400_BAD_REQUEST )
+        try:
+            owner = LoginModule.objects.get(user_id=user_id)
+        except LoginModule.DoesNotExist:
+            return Response({"error": "User not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            pet = PetModule.objects.get(pet_id=pet_id)
+        except PetModule.DoesNotExist:
+            return Response({"error": "Pet not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if pet.owner != owner:
+            return Response(
+                {"error": "This pet does not belong to the user."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
         serializer = PetRemainderSerializer(data = request.data)
         if serializer.is_valid():
@@ -600,7 +642,7 @@ class PetRemainderView(APIView):
         if not user_id :
             return Response("error: user_id is mandatory", status = status.HTTP_400_BAD_REQUEST)
         
-        alerts = PetRemainders.objects.filter(user_id = user_id)
+        alerts = PetRemainders.objects.filter(user__user_id=user_id)
         serializer = PetRemainderSerializer(alerts, many = True)
         return Response(serializer.data, status = status.HTTP_200_OK)
     
@@ -610,8 +652,9 @@ class PetRemainderView(APIView):
         if not user_id: return Response('error: user_id is required', status=status.HTTP_400_BAD_REQUEST)
         alert_id = request.data.get('alert_id')
         if not alert_id:return Response({'error': 'alert_id is required'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try: alert = PetRemainders.objects.get(alert_id=alert_id)
+        
+        owner = LoginModule.objects.get(user_id=user_id)
+        try: alert = PetRemainders.objects.get(alert_id=alert_id,user=owner)
         except PetRemainders.DoesNotExist: return Response({'error': 'Alert not found'}, status=status.HTTP_404_NOT_FOUND)
         serializer = PetRemainderSerializer(alert, data=request.data, partial=True) 
         if serializer.is_valid(): serializer.save() ;return Response({'message': 'Pet remainder updated successfully'}, status=status.HTTP_200_OK)
@@ -619,12 +662,14 @@ class PetRemainderView(APIView):
     
     #delete pet alert
     def delete(self, request):  
+        user_id = request.data.get('user_id')
         alert_id = request.query_params.get('alert_id')
         if not alert_id:
             return Response({'error': 'alert_id is required'}, status=status.HTTP_400_BAD_REQUEST)
         
+        owner = LoginModule.objects.get(user_id=user_id)
         try:
-            alert = PetRemainders.objects.get(alert_id=alert_id)
+            alert = PetRemainders.objects.get(alert_id=alert_id,user=owner)
         except PetRemainders.DoesNotExist:
             return Response({'error': 'remainder not found'}, status=status.HTTP_404_NOT_FOUND)
         

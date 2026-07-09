@@ -211,13 +211,33 @@ class ProductSerializer(serializers.ModelSerializer):
     
 
 class DocumentSerializer(serializers.ModelSerializer):
+
+    user = serializers.IntegerField(write_only=True)
+
     class Meta:
-        model=Documents
-        fields=['document_id','user','pet','document_title','document_file','upload_date']
+        model = Documents
+        fields = [
+            'document_id',
+            'user',
+            'pet',
+            'document_title',
+            'document_file',
+            'upload_date'
+        ]
 
+    def create(self, validated_data):
+        user_id = validated_data.pop("user")
 
+        try:
+            owner = LoginModule.objects.get(user_id=user_id)
+        except LoginModule.DoesNotExist:
+            raise serializers.ValidationError("User not found")
+
+        return Documents.objects.create(user=owner, **validated_data)
 
 class CartItemSerializer(serializers.ModelSerializer):
+
+    owner = serializers.IntegerField(write_only=True)
 
     product = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all())
     product_details = ProductSerializer(source='product', read_only=True)
@@ -231,12 +251,20 @@ class CartItemSerializer(serializers.ModelSerializer):
             'owner',
             'pet',
             'pet_name',
-            'product',        
-            'product_details',  
+            'product',
+            'product_details',
             'created_at'
         ]
 
+    def create(self, validated_data):
+        user_id = validated_data.pop("owner")
 
+        try:
+            owner = LoginModule.objects.get(user_id=user_id)
+        except LoginModule.DoesNotExist:
+            raise serializers.ValidationError("User not found")
+
+        return CartItem.objects.create(owner=owner, **validated_data)
 
 
 
@@ -323,14 +351,35 @@ class UserProfileSerializer(serializers.ModelSerializer):
     
 class PetRemainderSerializer(serializers.ModelSerializer):
 
+    user = serializers.IntegerField(write_only=True)
+
     class Meta:
-        model = PetRemainders 
-        fields = ['alert_id','user', 'pet', 'alert_type', 'alert_subtype', 'title', 'reminder_time','remainder_date', 'frequency', 'notes', 'is_active', 'completed_at', 'created_at']
+        model = PetRemainders
+        fields = [
+            'alert_id',
+            'user',
+            'pet',
+            'alert_type',
+            'alert_subtype',
+            'title',
+            'reminder_time',
+            'remainder_date',
+            'frequency',
+            'notes',
+            'is_active',
+            'completed_at',
+            'created_at'
+        ]
 
-        def create(self, validated_data):
-            alert = PetRemainders.objects.create(**validated_data)
-            return alert
-        
+    def create(self, validated_data):
+        user_id = validated_data.pop("user")
 
+        try:
+            owner = LoginModule.objects.get(user_id=user_id)
+        except LoginModule.DoesNotExist:
+            raise serializers.ValidationError("User not found")
+
+        return PetRemainders.objects.create(user=owner, **validated_data)
+    
 class PetDoctorSerializer(serializers.Serializer):
     prompt = serializers.CharField()
