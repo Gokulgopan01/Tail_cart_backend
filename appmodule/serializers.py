@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 import random
-from .models import LoginModule, UserProfile, PetModule, Product, Documents, CartItem, PetRemainders, PetAlert, PasswordResetOTP, Order, OrderItem
+from .models import LoginModule, UserProfile, PetModule, Product, Documents, CartItem, PetRemainders, PetAlert, PasswordResetOTP, Order, OrderItem, ProductReview
 
 
 class RegisterSerializer(serializers.Serializer):
@@ -46,8 +46,6 @@ class LoginSerializer(serializers.Serializer):
         return data
     
 
-
-
 class ForgotPasswordSerializer(serializers.Serializer):
     email_address = serializers.EmailField()
 
@@ -65,6 +63,7 @@ class ForgotPasswordSerializer(serializers.Serializer):
         otp = str(random.randint(100000, 999999))  # 6-digit OTP
         otp_obj = PasswordResetOTP.objects.create(user=user_module, otp=otp)
         return otp_obj
+
 
 class ResetPasswordSerializer(serializers.Serializer):
     email_address = serializers.EmailField()
@@ -110,6 +109,7 @@ class LostPetAlertSerializer(serializers.ModelSerializer):
         model = PetAlert  # This is the correct model
         fields = ['id', 'sender_name', 'phone', 'location', 'message', 'created_at','is_resolved']
 
+
 class PetQRSerializer(serializers.ModelSerializer):
     class Meta:
         model = PetModule
@@ -117,11 +117,35 @@ class PetQRSerializer(serializers.ModelSerializer):
 
 
 class PetSerializer(serializers.ModelSerializer):
+    user_id = serializers.IntegerField(write_only=True)
+
     alerts = serializers.SerializerMethodField()
 
     class Meta:
         model = PetModule
-        fields = ['pet_id', 'pet_name', 'species', 'breed','age', 'owner', 'is_lost', 'alerts','pet_photo', 'about','gender']
+        fields = [
+            "pet_id",
+            "pet_name",
+            "species",
+            "breed",
+            "age",
+            "gender",
+            "about",
+            "pet_photo",
+            "is_lost",
+            "alerts",
+            "user_id",
+        ]
+
+    def create(self, validated_data):
+        user_id = validated_data.pop("user_id")
+
+        try:
+            owner = LoginModule.objects.get(user_id=user_id)
+        except LoginModule.DoesNotExist:
+            raise serializers.ValidationError("User not found")
+
+        return PetModule.objects.create(owner=owner, **validated_data)
 
     def get_alerts(self, obj):
         alerts_qs = obj.alerts.filter(is_resolved=False)
@@ -142,10 +166,24 @@ class PublicPetSerializer(serializers.ModelSerializer):
         fields = ["pet_id","owner_id", "pet_name", "species", "breed", "age", "pet_photo", "is_lost","owner_name", "owner_address", "owner_phone", "owner_city",  "owner_state"]
 
 
+class ReviewSerializer(serializers.ModelSerializer):
+    username = serializers.SerializerMethodField()  
+
+    class Meta:
+        model = ProductReview
+        fields = ['id', 'username', 'rating', 'comment', 'created_at']
+
+    def get_username(self, obj):
+        return obj.get_display_name()    
+    
+
 class ProductSerializer(serializers.ModelSerializer):
 
     thumbnail_image = serializers.ImageField(required=False)
     second_image_1 = serializers.ImageField(required=False)
+
+    reviews = ReviewSerializer(many=True, read_only=True)   
+    review_count = serializers.SerializerMethodField()  
 
     class Meta:
         model = Product
@@ -162,10 +200,16 @@ class ProductSerializer(serializers.ModelSerializer):
             'thumbnail_image',
             'second_image_1',
             'in_stock',
-            'deals'
+            'deals',
+            'reviews',          
+            'review_count'  
         ]
-
         
+    def get_review_count(self, obj):
+        return obj.reviews.count()
+  
+    
+
 class DocumentSerializer(serializers.ModelSerializer):
     class Meta:
         model=Documents
@@ -265,6 +309,15 @@ class UserProfileSerializer(serializers.ModelSerializer):
         except LoginModule.DoesNotExist:raise serializers.ValidationError("User not found")
         profile = UserProfile.objects.create(user=user, **validated_data)
         return profile
+    
+    def update(self, instance, validated_data):
+        validated_data.pop("user_id", None)   # Ignore user_id during update
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        instance.save()
+        return instance
 
   
     

@@ -34,7 +34,7 @@ class PetAlert(models.Model):
     phone = models.CharField(max_length=15, blank=True, null=True)
     location = models.CharField(max_length=255)
     message = models.TextField(blank=True, null=True)
-    is_resolved = models.TextField(default=False,null=True, blank=True)
+    is_resolved = models.TextField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
 
@@ -95,6 +95,26 @@ class Product(models.Model):
         return self.product_name
 
 
+class ProductReview(models.Model):
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="reviews")
+    user = models.ForeignKey(LoginModule, on_delete=models.CASCADE, null=True, blank=True)
+    reviewer_name = models.CharField(max_length=100, null=True, blank=True)
+
+    rating = models.DecimalField(max_digits=2, decimal_places=1)
+    comment = models.TextField()
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def get_display_name(self):
+        if self.user:
+            return self.user.user.username
+        return self.reviewer_name or "Anonymous"
+    
+    def __str__(self):
+        return self.get_display_name()
+    
+    
+
 class Documents(models.Model):
     document_id = models.AutoField(primary_key=True)
     user = models.ForeignKey(LoginModule, on_delete=models.CASCADE, related_name="documents")
@@ -104,7 +124,7 @@ class Documents(models.Model):
     upload_date = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return self.document_name
+        return self.document_title
 
 
 class CartItem(models.Model):
@@ -118,7 +138,7 @@ class CartItem(models.Model):
     
 
     def __str__(self):
-        return f"{self.owner.username} - {self.product.product_name}"
+        return f"{self.owner.user.username} - {self.product.product_name}"
     
 
 class Order(models.Model):

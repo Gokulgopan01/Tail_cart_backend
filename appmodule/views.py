@@ -2,13 +2,16 @@ from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from django.shortcuts import get_object_or_404
+from django.db.models import Avg
+
 
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAdminUser
 from .permissions import IsAdminRole
 
-from .models import UserProfile, PetModule, Product, Documents, CartItem, PetRemainders, LoginModule, PetAlert, Order, OrderItem
+from .models import UserProfile, PetModule, Product, Documents, CartItem, PetRemainders, LoginModule, PetAlert, Order, OrderItem, ProductReview
 from .serializers import (LoginSerializer, RegisterSerializer,ForgotPasswordSerializer, ResetPasswordSerializer, UserProfileSerializer, OrderSerializer,
 PetSerializer, ProductSerializer, DocumentSerializer, CartItemSerializer, PetRemainderSerializer, PublicPetSerializer,PetDoctorSerializer,PetQRSerializer)
 
@@ -154,7 +157,12 @@ class UserProfileView(APIView):
         if not user_id: return Response('error: user_id is required', status=status.HTTP_400_BAD_REQUEST)
         try: profile = UserProfile.objects.get(user__user_id=user_id)
         except UserProfile.DoesNotExist: return Response({"error": "Profile not found"}, status=status.HTTP_404_NOT_FOUND)
-        serializer = UserProfileSerializer(profile, data=request.data, partial=True)
+
+        #user id no need to update
+        data = request.data.copy()
+        data.pop("user_id", None)
+
+        serializer = UserProfileSerializer(profile, data=data, partial=True)
         if serializer.is_valid(): serializer.save() ;return Response({"message": "Profile updated successfully"}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
@@ -166,7 +174,12 @@ class UserProfileView(APIView):
         if not user_id: return Response({"error": "user_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
         try: profile = UserProfile.objects.get(user__user_id=user_id)
         except UserProfile.DoesNotExist: return Response({"error": "Profile not found"}, status=status.HTTP_404_NOT_FOUND)
-        serializer = UserProfileSerializer(profile, data=request.data, partial=True) 
+
+        #user id no need to update
+        data = request.data.copy()
+        data.pop("user_id", None)
+
+        serializer = UserProfileSerializer(profile, data=data, partial=True) 
         if serializer.is_valid(): serializer.save() ;return Response({"message": "profile partially updated", "data": serializer.data}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -386,6 +399,40 @@ class ProductView(APIView):
         product.delete()
         return Response({'message': 'Product deleted successfully'}, status=status.HTTP_200_OK)
  
+
+
+class AddReviewView(APIView):
+
+    permission_classes = [IsAuthenticated]  
+
+    def post(self, request):
+        product_id = request.data.get('product')
+        rating = request.data.get('rating')
+        comment = request.data.get('comment')
+
+        product = get_object_or_404(Product, id=product_id)
+
+        try:
+            login_user = LoginModule.objects.get(user=request.user)
+        except LoginModule.DoesNotExist:
+            return Response({"error": "User profile not found"}, status=400)
+
+        #dupliccation check
+        if ProductReview.objects.filter(product=product, user=login_user).exists():
+            return Response({"error": "You already reviewed this product"}, status=400)
+
+        review = ProductReview.objects.create( product=product, user=login_user, rating=rating, comment=comment)
+
+        # ✅ Update product average rating
+        avg_rating = product.reviews.aggregate(avg=Avg('rating'))['avg'] or 0
+        product.reviews_stars = round(avg_rating, 1)
+        product.save()
+
+        return Response({
+            "message": "Review added successfully",
+            "review_id": review.id
+        }, status=status.HTTP_201_CREATED)
+    
 
 #Documents View
 class DocumentView(APIView):

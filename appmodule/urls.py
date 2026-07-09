@@ -1,7 +1,7 @@
 from django.urls import path
 from .views import (DeleteUserByIdView, RegisterView, LoginView,ForgotPasswordView,ResetPasswordView, UserProfileView,getqrPetview, PrivatePetView,
                      PetView, ProductView, DocumentView, CartView, PetRemainderView, ResolveAlertView, CreatePetAlertView, PublicPetView, PetDoctorView,
-                     CheckoutView, UserOrdersView)
+                     CheckoutView, UserOrdersView, AddReviewView)
 from django.conf import settings
 from django.conf.urls.static import static
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
@@ -23,12 +23,17 @@ urlpatterns = [
     path("alerts/resolve/", ResolveAlertView.as_view(), name="resolve-alert"),
     path("alerts/create/", CreatePetAlertView.as_view(), name="create-pet-alert"),
     path("public/pet/qr/<str:qr_uuid>/", PublicPetView.as_view(), name="public-pet-view"),
+    path("product/qr/<int:pet_id>/", getqrPetview.as_view(), name="get-pet-by-qr"),  
 
     #other user features
     path("user/doctor/", PetDoctorView.as_view(), name="pet-doctor-view"),
     path("user/pet-remainder/", PetRemainderView.as_view(), name="manage-pet-remainder"),
     path("user/documents/", DocumentView.as_view(), name ="manage-user-documents"),
+
+    #products
     path("manager/products/", ProductView.as_view(), name="manage-products"), 
+    path('manager/products/<int:id>/', ProductView.as_view(), name='admin-product-detail'),  
+    path('add-review/', AddReviewView.as_view(), name='add-review'),
 
     #cart management
     path("user/cart/", CartView.as_view(), name="manage-cart-items"),
@@ -39,9 +44,8 @@ urlpatterns = [
     path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path("manager/user/delete/<int:user_id>/", DeleteUserByIdView.as_view()),
-    path('manager/products/<int:id>/', ProductView.as_view(), name='admin-product-detail'),  
-    #get qr code of pet
-    path("product/qr/<int:pet_id>/", getqrPetview.as_view(), name="get-pet-by-qr"),  
+    
+    
     
 ]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
