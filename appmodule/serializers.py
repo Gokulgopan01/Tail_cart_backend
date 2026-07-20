@@ -116,6 +116,12 @@ class PetQRSerializer(serializers.ModelSerializer):
         fields = ['pet_id', 'pet_name', 'species', 'breed','age', 'owner', 'pet_qr_uuid'  ]
 
 
+
+class PetShareSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PetModule
+        fields = ["pet_id", "pet_name", "pet_photo"]
+
 class PetSerializer(serializers.ModelSerializer):
     user_id = serializers.IntegerField(write_only=True)
 
@@ -222,6 +228,7 @@ class DocumentSerializer(serializers.ModelSerializer):
             'pet',
             'document_title',
             'document_file',
+            'document_type',
             'upload_date'
         ]
 
@@ -320,16 +327,22 @@ class OrderSerializer(serializers.ModelSerializer):
         ]
 
 
+class UserProfileShareSerializer(serializers.ModelSerializer):
+    user_id = serializers.IntegerField(write_only=True) 
+    class Meta:
+        model = UserProfile
+        fields = [ 'user_id', 'owner_name','owner_photo']
+
 class UserProfileSerializer(serializers.ModelSerializer):
-    pets = serializers.SerializerMethodField(read_only=True)
+    # pets = serializers.SerializerMethodField(read_only=True)
     user_id = serializers.IntegerField(write_only=True) 
 
     class Meta:
         model = UserProfile
-        fields = [ 'user_id', 'owner_name', 'owner_address', 'owner_phone', 'owner_email', "owner_city","owner_state", 'pets','owner_photo', 'emergency_contact_name', 'emergency_contact_phone', 'created_at']
+        fields = [ 'user_id', 'owner_name', 'owner_address', 'owner_phone', 'owner_email', "owner_city","owner_state",'owner_photo', 'emergency_contact_name', 'emergency_contact_phone', 'created_at']
 
-    def get_pets(self, obj):
-        return PetSerializer(obj.user.pets.all(), many=True).data
+    # def get_pets(self, obj):
+    #     return PetSerializer(obj.user.pets.all(), many=True).data
     
     def create(self, validated_data):
         user_id = validated_data.pop('user_id')

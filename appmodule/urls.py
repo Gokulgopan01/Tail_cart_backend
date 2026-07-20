@@ -1,7 +1,10 @@
 from django.urls import path
-from .views import (DeleteUserByIdView, RegisterView, LoginView,ForgotPasswordView,ResetPasswordView, UserProfileView,getqrPetview, PrivatePetView,
-                     PetView, ProductView, DocumentView, CartView, PetRemainderView, ResolveAlertView, CreatePetAlertView, PublicPetView, PetDoctorView,
-                     CheckoutView, UserOrdersView, AddReviewView)
+
+from .views import (
+DeleteUserByIdView, RegisterView, LoginView,ForgotPasswordView,ResetPasswordView, UserProfileView,getqrPetview, PrivatePetView,
+PetView, ProductView, DocumentView, CartView, PetRemainderView, ResolveAlertView, CreatePetAlertView, PublicPetView, PetDoctorView,
+CheckoutView, UserOrdersView, AddReviewView, PetShareView,UserProfileSharedView)
+
 from django.conf import settings
 from django.conf.urls.static import static
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
@@ -16,7 +19,10 @@ urlpatterns = [
 
     #User profiles and pet management
     path("user/profile/", UserProfileView.as_view(), name="create-profile"), 
+    path("user/profile/shared_use/", UserProfileSharedView.as_view(), name="create-profile"),
+
     path("user/pets/", PetView.as_view(), name='manage-pets'),
+    path("user/pets/shared_use/", PetShareView.as_view(), name='manage-pets'),
     path("user/pet/<int:pet_id>/", PrivatePetView.as_view(), name="private-pet-view"),
 
     #public alerts and pet views

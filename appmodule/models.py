@@ -121,6 +121,7 @@ class Documents(models.Model):
     pet = models.ForeignKey(PetModule, on_delete=models.CASCADE, related_name="documents")
     document_title = models.CharField(max_length=200)
     document_file = models.FileField(upload_to='documents/')
+    document_type = models.CharField(max_length=50,default="Other Pet Document")
     upload_date = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

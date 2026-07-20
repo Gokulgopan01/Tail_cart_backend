@@ -12,8 +12,8 @@ from rest_framework.permissions import IsAdminUser
 from .permissions import IsAdminRole
 
 from .models import UserProfile, PetModule, Product, Documents, CartItem, PetRemainders, LoginModule, PetAlert, Order, OrderItem, ProductReview
-from .serializers import (LoginSerializer, RegisterSerializer,ForgotPasswordSerializer, ResetPasswordSerializer, UserProfileSerializer, OrderSerializer,
-PetSerializer, ProductSerializer, DocumentSerializer, CartItemSerializer, PetRemainderSerializer, PublicPetSerializer,PetDoctorSerializer,PetQRSerializer)
+from .serializers import (LoginSerializer, RegisterSerializer,ForgotPasswordSerializer, ResetPasswordSerializer, UserProfileSerializer, OrderSerializer,UserProfileShareSerializer,
+PetSerializer, ProductSerializer, DocumentSerializer, CartItemSerializer, PetRemainderSerializer, PublicPetSerializer,PetDoctorSerializer,PetQRSerializer,PetShareSerializer)
 
 from django.core.mail import send_mail
 from django.conf import settings
@@ -124,6 +124,22 @@ class ResetPasswordView(APIView):
             return Response({"message": "Password reset successfully"}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+#only shared username and image
+class UserProfileSharedView(APIView):
+    '''Share only username image'''
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user_id = request.query_params.get('user_id')
+        if not user_id: return Response('error: user_id is required', status=status.HTTP_400_BAD_REQUEST)
+        try: profile = UserProfile.objects.only(
+        "owner_name",
+        "owner_photo"
+    ).get(user__user_id=user_id)
+        except UserProfile.DoesNotExist:return Response({"error": "Profile not found"}, status=status.HTTP_404_NOT_FOUND)
+        serializer = UserProfileShareSerializer(profile)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 #Users Profile View
 class UserProfileView(APIView):
@@ -276,6 +292,24 @@ class CreatePetAlertView(APIView):
 
         return Response( {"message": "Alert created successfully", "alert_id": alert.id}, status=status.HTTP_201_CREATED)
 
+
+#Share just pet image and name
+class PetShareView(APIView):
+    '''Share pet image and name only'''
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        '''Show pets'''
+
+        user_id = request.query_params.get('user_id')
+        if not user_id: return Response('error: user_id is required', status=status.HTTP_400_BAD_REQUEST)
+
+        pets = (PetModule.objects.filter(owner__user_id=user_id).only("pet_id", "pet_name", "pet_photo"))
+        if not pets.exists():
+            return Response({"error": "No pets found"},status=status.HTTP_404_NOT_FOUND)
+        
+        serializer = PetShareSerializer(pets, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 #pets View
 class PetView(APIView):
@@ -577,14 +611,16 @@ class CheckoutView(APIView):
 
     def post(self,request):
         user_id = request.data.get("user")
-        cart_items = CartItem.objects.filter(owner_id=user_id)
+        login = LoginModule.objects.get(user=request.user)
+        cart_items = CartItem.objects.filter(owner=login)
+
         if not cart_items.exists():
             return Response({"message": "Cart is empty"}, status=400)
         
         total = sum(item.product.selling_price * item.quantity for item in cart_items)
 
         #create order
-        order = Order.objects.create( user_id=user_id,total_price=total, confirmed_at=timezone.now() )
+        order = Order.objects.create( user=login,total_price=total, confirmed_at=timezone.now() )
         for item in cart_items:
             OrderItem.objects.create(  order=order,  product=item.product, quantity=item.quantity, price=item.product.selling_price )
 
@@ -594,13 +630,13 @@ class CheckoutView(APIView):
 
 
 class UserOrdersView(APIView):
+    permission_classes = [IsAuthenticated]
+
     def get(self, request):
-        user_id = request.query_params.get("user_id")
+        login = request.user.loginmodule
 
-        if not user_id:
-            return Response({"error": "user_id is required"}, status=400)
+        orders = Order.objects.filter(user=login)
 
-        orders = Order.objects.filter(user=user_id)
         serializer = OrderSerializer(orders, many=True)
         return Response(serializer.data)
     
